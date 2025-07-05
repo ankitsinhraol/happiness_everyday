@@ -19,6 +19,7 @@ import VendorAnalytics from '../components/vendor/VendorAnalytics.tsx';
 import VendorSettings from '../components/vendor/VendorSettings.tsx';
 import VendorReviews from '../components/vendor/VendorReviews.tsx';
 import VendorFavorites from '../components/vendor/VendorFavorites.tsx';
+import VendorChatMessage from '../components/vendor/VendorChatMessages.tsx';
 import { Star, Heart } from 'lucide-react';
 
 const VendorDashboardPage: React.FC = () => {
@@ -34,6 +35,7 @@ const VendorDashboardPage: React.FC = () => {
     { path: '/vendor-dashboard/services', label: 'Services', icon: <ClipboardList size={20} /> },
     { path: '/vendor-dashboard/gallery', label: 'Gallery', icon: <Image size={20} /> },
     { path: '/vendor-dashboard/messages', label: 'Messages', icon: <MessageCircle size={20} /> },
+    { path: '/vendor-dashboard/chatmessage', label: 'Chat Messages', icon: <MessageCircle size={20} /> },
     { path: '/vendor-dashboard/analytics', label: 'Analytics', icon: <BarChart size={20} /> },
     { path: '/vendor-dashboard/profile', label: 'Profile', icon: <Building size={20} /> },
     { path: '/vendor-dashboard/reviews', label: 'Reviews', icon: <Star size={20} /> },
@@ -165,6 +167,7 @@ const VendorDashboardPage: React.FC = () => {
               <Route path="services" element={<VendorServices />} />
               <Route path="gallery" element={<VendorGallery />} />
               <Route path="messages" element={<VendorMessages />} />
+              <Route path="chatmessage" element={<VendorChatMessage />} />
               <Route path="analytics" element={<VendorAnalytics />} />
               <Route path="profile" element={<VendorProfile />} />
               <Route path="reviews" element={<VendorReviews />} />

@@ -12,6 +12,7 @@ interface Message {
 }
 
 const VendorMessages: React.FC = () => {
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
 
@@ -47,6 +48,36 @@ const VendorMessages: React.FC = () => {
   if (loading) {
     return <p>Loading messages...</p>;
   }
+
+ //Send Message
+
+
+
+  // Add this useEffect in both components
+  useEffect(() => {
+    if (!activeConversationId) return;
+
+    const channel = supabase
+      .channel(`conversation_${activeConversationId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `user_id=eq.${activeConversationId}`
+        },
+        (payload) => {
+          setMessages(prev => [...prev, payload.new as Message]);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [activeConversationId]);
+
 
   if (messages.length === 0) {
     return (

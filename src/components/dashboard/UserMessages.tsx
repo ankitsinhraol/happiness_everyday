@@ -14,6 +14,10 @@ interface Message {
   user_id: string;
   message: string;
   created_at: string;
+  sender?: {
+    name: string;
+    image_url?: string;
+  };
 }
 
 interface VendorInfo {
@@ -63,7 +67,7 @@ const UserMessages: React.FC = () => {
 
   supabase
     .from('messages')
-    .select('*')
+    .select('*, sender:users(name)')
     .or(`and(sender_id.eq.${userId},receiver_id.eq.${vendorId}),and(sender_id.eq.${vendorId},receiver_id.eq.${userId})`)
     .order('created_at', { ascending: true })
     .then(({ data, error }) => {
@@ -78,84 +82,71 @@ const UserMessages: React.FC = () => {
 }, [vendorId, userId]);
 
 
-
   // Send message
-  const sendMessage = async () => {
-    if (!newMessage.trim() || !vendorId || !userId) return;
-
-    const content = newMessage.trim();
-
-    const { data, error } = await supabase.from('messages').insert([{
-      sender_id: userId,
-      receiver_id: vendorId,
-      vendor_id: vendorId,
-      user_id: userId,
-      message: content,
-    }]).select();
-
-    if (error) {
-      console.error('Error sending message:', error.message);
+    const sendMessage = async () => {
+    if (!newMessage.trim() || !vendorId || !userId) {
       return;
     }
 
-    const created = data?.[0];
-    if (created) {
-      setMessages(prev => [...prev, created]);
+    // 🔍 Lookup the correct user_id from the vendors table
+    const { data: vendorUser, error } = await supabase
+      .from('vendors')
+      .select('user_id')
+      .eq('id', vendorId)  // This is the vendors.id from the search param
+      .single();
+
+    if (error || !vendorUser) {
+      console.error('❌ Failed to fetch vendor user_id');
+      return;
+    }
+
+    const resolvedVendorUserId = vendorUser.user_id;
+
+    const { data, error: insertError } = await supabase.from('messages').insert([{
+      sender_id: userId,
+      receiver_id: resolvedVendorUserId,   // ✅ correct user_id
+      vendor_id: vendorId,                 // still store vendors.id for display context
+      user_id: userId,
+      message: newMessage.trim(),
+    }]).select('*');
+
+    if (insertError) {
+      console.error('❌ Supabase insert error:', insertError);
+      return;
+    }
+
+    if (data?.length) {
+      setMessages(prev => [...prev, data[0]]);
       setNewMessage('');
-      console.log('🔄 Updated messages:', [...messages, created]);
-
-
-      if (!activeConversationId) {
-        setActiveConversationId(vendorId);
-      }
-
-      // If vendor info is not already present, fetch it
-      if (!vendors[vendorId]) {
-        const { data: vendorData, error: vendorError } = await supabase
-          .from('vendors')
-          .select('id, name, image_url')
-          .eq('id', vendorId)
-          .single();
-
-        if (!vendorError && vendorData) {
-          setVendors(prev => ({
-            ...prev,
-            [vendorId]: {
-              vendorName: vendorData.name,
-              vendorImage: vendorData.image_url
-            }
-          }));
-        }
-      }
     }
   };
 
-  // const sendMessage = async () => {
-  //   if (!newMessage.trim() || !vendorId || !userId) return;
+  useEffect(() => {
+  if (!userId || !vendorId) return;
 
-  //   const content = newMessage.trim();
+  const filter = `or(and(sender_id.eq.${userId},receiver_id.eq.${vendorId}),and(sender_id.eq.${vendorId},receiver_id.eq.${userId}))`;
 
-  //   const { data, error } = await supabase.from('messages').insert([{
-  //     sender_id: userId,
-  //     receiver_id: vendorId,
-  //     vendor_id: vendorId,
-  //     user_id: userId,
-  //     message: content,
-  //   }])
-  //   .select();
+  const channel = supabase
+    .channel('user_messages_' + userId)
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', 
+        schema: 'public', 
+        table: 'messages', 
+        filter: filter },
+      (payload) => {
+        setMessages(prev => [...prev, payload.new as Message]);
+      }
+    )
+    .subscribe();
 
-  //   if (error) {
-  //     console.error('Error sending message:', error.message);
-  //   } else {
-  //     const created = data?.[0];
-  //     if (created) {
-  //       setMessages(prev => [...prev, created]);
-  //       setNewMessage('');
-  //     }
-  //   }
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}, [userId]);
 
-  
-  // };
+
+
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -163,6 +154,33 @@ const UserMessages: React.FC = () => {
       sendMessage();
     }
   };
+
+
+  // Add this useEffect in both components
+  useEffect(() => {
+    if (!vendorId || !activeConversationId) return;
+
+    const channel = supabase
+      .channel(`conversation_${activeConversationId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `user_id=eq.${activeConversationId}`
+        },
+        (payload) => {
+          setMessages(prev => [...prev, payload.new as Message]);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [activeConversationId, vendorId]);
+
 
 
   // useEffect(() => {
@@ -224,14 +242,7 @@ const UserMessages: React.FC = () => {
   }, [conversationList]);
 
 
-  // useEffect(() => {
-  //   if (vendorId && conversationList.length > 0) {
-  //     console.log("Setting activeConversationId:", vendorId);
-  //     setActiveConversationId(vendorId);
-  //   } else {
-  //     console.log("Vendor ID or conversation list missing");
-  //   }
-  // }, [vendorId, conversationList]);
+  
 
   useEffect(() => {
    console.log('💬 conversationList:', conversationList);
@@ -384,14 +395,14 @@ const UserMessages: React.FC = () => {
 
         {/* Right Section (Conversation Area) */}
         <div
-          className={`w-full md:w-2/3 flex flex-col ${
+          className={`w-full md:w-2/3 flex flex-col ${showMobileList ? 'hidden' : 'flex'} md:flex`} 
+        >   {/*`w-full md:w-2/3 flex flex-col ${
             showMobileList ? 'hidden' : 'block'
-          } md:block`}
-        >
+          } md:block`*/}
           {activeConversation ? (
             <>
               {/* Header */}
-              <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center">
+              <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center"> {/*px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center */}
                 <img
                   src={activeConversation.vendorImage}
                   alt={activeConversation.vendorName}
@@ -410,15 +421,18 @@ const UserMessages: React.FC = () => {
 
               {/* Messages */}
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                {activeConversation.messages.map((message) => {
+                {messages.map((message) => {
                   const isUser = message.sender_id === userId;
 
                 
                 return (
                   <div
-                    key={message.id}
+                    key={message.id || message.created_at}
                     className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
                   >
+                    <div className={`text-xs mb-1 ${isUser ? 'text-right text-purple-500' : 'text-left text-gray-500'}`}>
+                      {message.sender?.name || (isUser ? 'You' : 'Vendor')}
+                    </div>
                     <div
                       className={`max-w-xs md:max-w-md rounded-lg px-4 py-2 ${
                         isUser
@@ -458,6 +472,7 @@ const UserMessages: React.FC = () => {
                   <button
                     onClick={sendMessage}
                     disabled={!newMessage.trim()}
+                    
                     className={`ml-2 p-2 rounded-full ${
                       newMessage.trim()
                         ? 'bg-purple-600 text-white hover:bg-purple-700'
